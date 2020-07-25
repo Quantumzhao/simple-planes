@@ -1,5 +1,7 @@
 package xyz.przemyk.simpleplanes;
 
+import static net.minecraft.network.datasync.DataSerializers.registerSerializer;
+
 import net.minecraft.network.PacketBuffer;
 import net.minecraft.network.datasync.IDataSerializer;
 import net.minecraft.util.math.MathHelper;
@@ -7,9 +9,6 @@ import net.minecraft.util.math.vector.Quaternion;
 import net.minecraft.util.math.vector.Vector3d;
 import net.minecraft.util.math.vector.Vector3f;
 
-import static net.minecraft.network.datasync.DataSerializers.registerSerializer;
-
-//TODO: refactor this
 public class MathUtil extends MathHelper
 {
 
@@ -58,7 +57,7 @@ public class MathUtil extends MathHelper
         return wrapDegrees(p_203302_1_ - p_203302_0_);
     }
 
-    public static Vector3f getVecf(double yaw, double pitch)
+    public static Vector3f rotationToVectorFloat(double yaw, double pitch)
     {
         yaw = Math.toRadians(yaw);
         pitch = Math.toRadians(pitch);
@@ -70,7 +69,7 @@ public class MathUtil extends MathHelper
 
     }
 
-    public static Vector3d getVec(double yaw, double pitch)
+    public static Vector3d rotationToVector(double yaw, double pitch)
     {
         yaw = Math.toRadians(yaw);
         pitch = Math.toRadians(pitch);
@@ -81,24 +80,10 @@ public class MathUtil extends MathHelper
         return new Vector3d(x, y, z);
     }
 
-    public static Vector3d getVec(double yaw, double pitch, double l)
+    public static Vector3d rotationToVector(double yaw, double pitch, double size)
     {
-        Vector3d vec = getVec(yaw, pitch);
-        return vec.scale(l / vec.length());
-    }
-
-    public static Vector3d getVec(Quaternion q)
-    {
-        return new Vector3d(q.getX(), q.getY(), q.getZ());
-    }
-
-    public static Vector3d getVecSized(double x, double y, double z, double l)
-    {
-
-        Vector3d vector3d = new Vector3d(x, y, z);
-        if (l != 0)
-            vector3d.scale(l / vector3d.length());
-        return vector3d;
+        Vector3d vec = rotationToVector(yaw, pitch);
+        return vec.scale(size / vec.length());
     }
 
     public static double getHorizontalLength(Vector3d vector3d)
@@ -106,7 +91,7 @@ public class MathUtil extends MathHelper
         return Math.sqrt(vector3d.x * vector3d.x + vector3d.z * vector3d.z);
     }
 
-    public static Angels ToEulerAngles(Quaternion q)
+    public static Angels toEulerAngles(Quaternion q)
     {
         Angels angles = new Angels();
 
@@ -115,23 +100,18 @@ public class MathUtil extends MathHelper
         double cosr_cosp = 1 - 2 * (q.getZ() * q.getZ() + q.getX() * q.getX());
         angles.roll = Math.toDegrees(Math.atan2(sinr_cosp, cosr_cosp));
 
-        // pitch (y-axis rotation)
+        // pitch (z-axis rotation)
         double sinp = 2 * (q.getW() * q.getX() - q.getY() * q.getZ());
         if (Math.abs(sinp) >= 0.98)
         {
             angles.pitch = -Math.toDegrees(Math.signum(sinp) * Math.PI / 2); // use 90 degrees if out of range
-            //            q.multiply(Vector3f.XP.rotationDegrees((float) (45*Math.signum(sinp))));
-
-            //            angles.roll = 180;
-            //            angles.yaw = Math.toDegrees(Math.atan2(q.getY(),q.getZ()));
-            //            return angles;
         }
         else
         {
             angles.pitch = -Math.toDegrees(Math.asin(sinp));
         }
 
-        // yaw (z-axis rotation)
+        // yaw (y-axis rotation)
         double siny_cosp = 2 * (q.getW() * q.getY() + q.getZ() * q.getX());
         double cosy_cosp = 1 - 2 * (q.getX() * q.getX() + q.getY() * q.getY());
         angles.yaw = Math.toDegrees(Math.atan2(siny_cosp, cosy_cosp));
@@ -139,7 +119,39 @@ public class MathUtil extends MathHelper
         return angles;
     }
 
-    public static Quaternion ToQuaternion(double yaw, double pitch, double roll) // yaw (Z), pitch (Y), roll (X)
+    public static float fastInvSqrt(float number)
+    {
+        float f = 0.5F * number;
+        int i = Float.floatToIntBits(number);
+        i = 1597463007 - (i >> 1);
+        number = Float.intBitsToFloat(i);
+        return number * (1.5F - f * number * number);
+    }
+
+    public static Quaternion normalizeQuaternion(Quaternion q)
+    {
+        float f = q.getX() * q.getX() + q.getY() * q.getY() + q.getZ() * q.getZ() + q.getW() * q.getW();
+        float x = q.getX();
+        float y = q.getY();
+        float z = q.getZ();
+        float w = q.getW();
+        if (f > 1.0E-6F)
+        {
+            float f1 = fastInvSqrt(f);
+            x *= f1;
+            y *= f1;
+            z *= f1;
+            w *= f1;
+            return new Quaternion(x, y, z, w);
+        }
+        else
+        {
+            return new Quaternion(0, 0, 0, 0);
+        }
+
+    }
+
+    public static Quaternion toQuaternion(double yaw, double pitch, double roll) // yaw (Z), pitch (Y), roll (X)
     {
         // Abbreviations for the various angular functions
         yaw = Math.toRadians(yaw);
@@ -166,11 +178,11 @@ public class MathUtil extends MathHelper
     {
         // Only unit quaternions are valid rotations.
         // Normalize to avoid undefined behavior.
-        start.normalize();
-        end.normalize();
+        start = normalizeQuaternion(start);
+        end = normalizeQuaternion(end);
 
         // Compute the cosine of the angle between the two vectors.
-        double dot = start.getX() * end.getX() +start.getY() * end.getY() +start.getZ() * end.getZ() +start.getW() * end.getW()  ;
+        double dot = start.getX() * end.getX() + start.getY() * end.getY() + start.getZ() * end.getZ() + start.getW() * end.getW();
 
         // If the dot product is negative, slerp won't take
         // the shorter path. Note that v1 and -v1 are equivalent when
@@ -178,8 +190,7 @@ public class MathUtil extends MathHelper
         // reversing one quaternion.
         if (dot < 0.0f)
         {
-            end = end.copy();
-            end.multiply(-1);
+            end = new Quaternion(-end.getX(), -end.getY(), -end.getZ(), -end.getW());
             dot = -dot;
         }
 
@@ -195,8 +206,7 @@ public class MathUtil extends MathHelper
                     start.getZ() * (1 - perc) + end.getZ() * perc,
                     start.getW() * (1 - perc) + end.getW() * perc
             );
-            quaternion.normalize();
-            return quaternion;
+            return normalizeQuaternion(quaternion);
         }
 
         // Since dot is in range [0, DOT_THRESHOLD], acos is safe
@@ -214,18 +224,9 @@ public class MathUtil extends MathHelper
                 start.getZ() * (s0) + end.getZ() * s1,
                 start.getW() * (s0) + end.getW() * s1
         );
-        quaternion.normalize();
-        return quaternion;
+        return normalizeQuaternion(quaternion);
     }
 
-    //    public static Quaternion lerpQ(float perc,Quaternion start,Quaternion end){
-    //        return new Quaternion(
-    //                start.getX()*(1-perc)+end.getX()*perc,
-    //                start.getY()*(1-perc)+end.getY()*perc,
-    //                start.getZ()*(1-perc)+end.getZ()*perc,
-    //                start.getW()*(1-perc)+end.getW()*perc
-    //        );
-    //    }
     public static class Angels
     {
         public double pitch, yaw, roll;
@@ -251,6 +252,15 @@ public class MathUtil extends MathHelper
         public Angels copy()
         {
             return new Angels(this);
+        }
+
+        @Override public String toString()
+        {
+            return "Angels{" +
+                    "pitch=" + pitch +
+                    ", yaw=" + yaw +
+                    ", roll=" + roll +
+                    '}';
         }
     }
 
